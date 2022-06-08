@@ -3,7 +3,7 @@ import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import networkx as nx
 
-# load the karate club graph
+# load graph (This is a default example, you can change to the graph you want)
 G = nx.karate_club_graph()
 
 # The initial cluster
@@ -12,7 +12,7 @@ initial_cluster = {}
 for i, v in enumerate(G.nodes()):
     initial_cluster[v] = i
 
-# compute the best leveled cluster
+# compute the best leveled cluster: best_leveled_cluster is the final clustering result
 l_cluster = cluster_louvain.best_leveled_cluster(G, initial_cluster)
 
 # draw the graph
