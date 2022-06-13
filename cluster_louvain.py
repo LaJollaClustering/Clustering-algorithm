@@ -60,21 +60,20 @@ def modularity(l_cluster, graph, weight='weight'):
     if edges == 0:
         raise ValueError("Undefined modularity")
 
-    for node in graph:
-        clu = l_cluster[node]
-        deg[clu] = deg.get(clu, 0.) + graph.degree(node, weight=weight)
-        for neighbor, datas in graph[node].items():
+    for u in graph:
+        cluster = l_cluster[u]
+        deg[cluster] = deg.get(cluster, 0.) + graph.degree(u, weight=weight)
+        for v, datas in graph[u].items():
             edge_weight = datas.get(weight, 1)
-            if l_cluster[neighbor] == clu:
-                if neighbor == node:
-                    inc[clu] = inc.get(clu, 0.) + float(edge_weight)
-                else:
-                    inc[clu] = inc.get(clu, 0.) + float(edge_weight) / 2.
+            if l_cluster[v] == cluster:
+                # \Sum A_{u,v} where node {u,v} in the same cluster
+                # self-loop only add once and normal edges add twice
+                inc[cluster] = inc.get(cluster, 0.) + float(edge_weight)
 
     res = 0.
-    for clu in set(l_cluster.values()):
-        res += (inc.get(clu, 0.) / edges) - \
-               (deg.get(clu, 0.) / (2. * edges)) ** 2
+    for cluster in set(l_cluster.values()):
+        res += (inc.get(cluster, 0.) / (2. * edges)) - \
+               (deg.get(cluster, 0.) / (2. * edges)) ** 2
     return res
 
 
@@ -291,7 +290,7 @@ def __remove(node, com, weight, status):
     status.degrees[com] = (status.degrees.get(com, 0.)
                            - status.gdegrees.get(node, 0.))
     status.internals[com] = float(status.internals.get(com, 0.) -
-                                  weight - status.loops.get(node, 0.))
+                                  2. * weight - status.loops.get(node, 0.)) # weight*2 since node->cluster, cluster->node
     status.node_to_cluster[node] = -1
 
 
@@ -301,7 +300,7 @@ def __insert(node, clu, weight, status):
     status.degrees[clu] = (status.degrees.get(clu, 0.) +
                            status.gdegrees.get(node, 0.))
     status.internals[clu] = float(status.internals.get(clu, 0.) +
-                                  weight + status.loops.get(node, 0.))
+                                  2. * weight + status.loops.get(node, 0.)) # weight*2 since node->cluster, cluster->node
 
 
 def __modularity(status, resolution):
@@ -314,7 +313,7 @@ def __modularity(status, resolution):
         in_degree = status.internals.get(cluster, 0.)
         degree = status.degrees.get(cluster, 0.)
         if edges > 0:
-            result += in_degree * resolution / edges -  ((degree / (2. * edges)) ** 2)
+            result += in_degree * resolution / (2. * edges) -  ((degree / (2. * edges)) ** 2)
     return result
 
 
