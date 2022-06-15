@@ -17,6 +17,12 @@ __author__ = """Thomas Aynaud (thomas.aynaud@lip6.fr)"""
 #    BSD license.
 #    some problems were fixed by Miryam Huang
 
+'''
+you can set MAX_PASS on your own, 
+it represents how many iterations would you like to do in each call of _one_level.
+Since some times the user don't want to find the modularity maximum, they want few iterations.
+I seldom encounter this situation so I don't really know why the original author set this parameter.
+'''
 MAX_PASS = -1
 _MIN = 0.0000001
 
@@ -35,7 +41,7 @@ def check_random_s(seed):
 
 
 def leveled_cluster(dendrogram, level):
-    # Return the cluster of the nodes at the given level i.e. leveled_cluster (l_cluster)
+    # Return the cluster of the nodes (clustering result) at the given level i.e. leveled_cluster (l_cluster)
 
     l_cluster = dendrogram[0].copy()
     for i in range(1, level + 1):
@@ -45,7 +51,8 @@ def leveled_cluster(dendrogram, level):
 
 
 def modularity(l_cluster, graph, weight='weight'):
-    #Compute the modularity of a leveled cluster of a graph
+    #Compute the modularity of a leveled_cluster.
+    #Modularity computation:
 
     #References
     #Newman, M.E.J. & Girvan, M. Finding and evaluating community
@@ -54,22 +61,24 @@ def modularity(l_cluster, graph, weight='weight'):
     if graph.is_directed():
         raise TypeError("Graph type error, use only undirected graph")
 
-    inc = dict([])
-    deg = dict([])
+    inc = dict([]) #intra-cluster degree(indegree): how many intracluster edges of each cluster
+    deg = dict([]) #cluster's total degree: in-degree + how many intercluster edges(out-degree)
     edges = graph.size(weight=weight)
     if edges == 0:
         raise ValueError("Undefined modularity")
 
-    for u in graph:
-        cluster = l_cluster[u]
+    for u in graph: #u: node
+        cluster = l_cluster[u]#the community that 'node' this vertix belongs to
+        #Compute the degree of the cluster
+        #same as deg[com]=deg[com]+graph.degree but if deg[com] is empty, set it to 0. i.e., deg.get(cluster, 0.)
         deg[cluster] = deg.get(cluster, 0.) + graph.degree(u, weight=weight)
-        for v, datas in graph[u].items():
+        for v, datas in graph[u].items(): #v: neighbor node of u
             edge_weight = datas.get(weight, 1)
-            if l_cluster[v] == cluster:
+            if l_cluster[v] == cluster: #same cluster: add in-degree
                 # \Sum A_{u,v} where node {u,v} in the same cluster
                 # self-loop only add once and normal edges add twice
                 inc[cluster] = inc.get(cluster, 0.) + float(edge_weight)
-
+    #computer modularity
     res = 0.
     for cluster in set(l_cluster.values()):
         res += (inc.get(cluster, 0.) / (2. * edges)) - \
@@ -105,6 +114,7 @@ def best_leveled_cluster(graph,
     #Blondel, V.D. et al. Fast unfolding of communities in
     #large networks. J. Stat. Mech 10008, 1-12(2008).
 
+    #the final level_cluster is the best clustering result
     dendo = generate_dendrogram(graph,
                                 l_cluster,
                                 weight,
@@ -140,29 +150,36 @@ def generate_dendrogram(graph,
 
     random_s = check_random_s(random_s)
 
-    # special case, when there is no edge
+    # When there is no edge
     # every node is its cluster
     if graph.number_of_edges() == 0:
         clus = dict([])
         for i, node in enumerate(graph.nodes()):
             clus[node] = i
         return [clus]
-
-    current_graph = graph.copy()
-    status = Status()
+    #run once
+    current_graph = graph.copy() #copy graph and use it as current graph
+    status = Status() #the graph structure is maitained in status
     status.initialization(current_graph, weight, l_cluster_init)
-    status_list = list()
+    status_list = list() #handle the level_cluster, the whole list is the dendrogram i.e. clustering history
+    #do one_level louvain
     __one_level(current_graph, status, weight, resolution, random_s)
+    #compute modularity and set as new_modularity, it will be compared later on
     new_modularity = __modularity(status, resolution)
+    #l_cluster is the clustering result: which node belongs to which cluster
     l_cluster = __renumber(status.node_to_cluster)
+    #append 1st leveled_cluster (1st level clustering result)
     status_list.append(l_cluster)
     mod = new_modularity
+    #Produce induced_graph: compress the clusters to nodes of the new graph
     current_graph = induced_graph(l_cluster, current_graph, weight)
+    #Do initialization again and then run same steps as above in the while loop
     status.initialization(current_graph, weight)
 
     while True:
         __one_level(current_graph, status, weight, resolution, random_s)
         new_modularity = __modularity(status, resolution)
+        #if finding the optimal culustering (maxmimum modularity), break
         if new_modularity - mod < _MIN:
             break
         l_cluster = __renumber(status.node_to_cluster)
@@ -174,23 +191,41 @@ def generate_dendrogram(graph,
 
 
 def induced_graph(l_cluster, graph, weight="weight"):
-    #Produce the graph where nodes are the clusters
+    #compress clusters to nodes and make new graph for the next level
 
-    ret = nx.Graph()
-    ret.add_nodes_from(l_cluster.values())
+    ret = nx.Graph() #create a new blank graph
+    ret.add_nodes_from(l_cluster.values()) #assing clusters to nodes: cl_1->n_1 cl_2->n_2...
+    
+    
 
-    for node1, node2, datas in graph.edges(data=True):
-        edge_weight = datas.get(weight, 1)
-        clu1 = l_cluster[node1]
-        clu2 = l_cluster[node2]
+    #connect edges (inter-cluster edges weights btw clusters in original graph -> edges weights btw nodes)
+    '''   
+    Trace step: 
+    say node_a,node_b have edge(a,b) with weight w(a,b)=3;
+    say node_a,node_c have edge(a,c) with weight w(a,c)=8;
+    a in cluster_1 c_1;   b, c in cluster_2 c_2;
+    Then, in this new graph, our two nodes c1,c2(representing the cluster_1 and cluster_2)
+    don't have edges yet. So, w(c1,c2)=0, initially.
+
+    in the for loop, alg originally choose node a, b;
+    ret.add_edge updates w(c1,c2) to 0+3=3.
+    so next trial alg go to node a, c;
+    ret.add_edge updates w(c1,c2) to 3+8=11.
+    
+    keep repeating this procedure,until all inter-cluster edges weight of c_1 and c_2 are counted
+    '''
+    for node1, node2, datas in graph.edges(data=True): #pick two nodes (they are indeed nodes in the original clusters)
+        edge_weight = datas.get(weight, 1) #get edge weights from those two nodes(clusters) 
+        clu1 = l_cluster[node1] #see cluster that node1 belongs to
+        clu2 = l_cluster[node2] #see cluster that node2 belongs to
         w_prec = ret.get_edge_data(clu1, clu2, {weight: 0}).get(weight, 1)
-        ret.add_edge(clu1, clu2, **{weight: w_prec + edge_weight})
+        ret.add_edge(clu1, clu2, **{weight: w_prec + edge_weight}) #update edge weight
 
     return ret
 
 
 def __renumber(dictionary):
-
+    #example: after clustering, there might be #1, #4, #7 clusters, just simply rename them to #1, #2, #3
     values = set(dictionary.values())
     target = set(range(len(values)))
 
@@ -208,7 +243,9 @@ def __renumber(dictionary):
 
     return ret
 
-
+'''
+I am not familiar with this part.
+'''
 def load_binary(data):
     data = open(data, "rb")
 
@@ -240,36 +277,40 @@ def __one_level(graph, status, weight_key, resolution, random_s):
 
     modified = True
     nb_pass_done = 0
-    cur_mod = __modularity(status, resolution)
-    new_mod = cur_mod
+    cur_mod = __modularity(status, resolution) #compute modularity
+    new_mod = cur_mod #set modularity
 
     while modified and nb_pass_done != MAX_PASS:
         cur_mod = new_mod
         modified = False
         nb_pass_done += 1
 
-        for node in __randomize(graph.nodes(), random_s):
-            clu_node = status.node_to_cluster[node]
-            degc_totw = status.gdegrees.get(node, 0.) / (status.total_weight * 2.) 
-            neigh_clusters = __neighborcluster(node, graph, status, weight_key)
+        for node in __randomize(graph.nodes(), random_s): #randomly pick a node and start from the node
+            clu_node = status.node_to_cluster[node] #the cluster that the node belongs to
+            degc_totw = status.gdegrees.get(node, 0.) / (status.total_weight * 2.) #the degree of each node/2m
+            neigh_clusters = __neighborcluster(node, graph, status, weight_key) #neighbor cluster
+            #remove_cost: wikipedia modularity difference (remove node from its mother cluster)
             remove_cost = - neigh_clusters.get(clu_node,0) + \
                 resolution * (status.degrees.get(clu_node, 0.) - status.gdegrees.get(node, 0.)) * degc_totw
+            #remove the node
             __remove(node, clu_node,
                      neigh_clusters.get(clu_node, 0.), status)
             best_clu = clu_node
             best_increase = 0
-            for clu, dnc in __randomize(neigh_clusters.items(), random_s):
+            for clu, dnc in __randomize(neigh_clusters.items(), random_s): #neighbor cluster of current node
+                #incr: wikipedia modularity difference (add node to its neighbor cluster)
                 incr = remove_cost + dnc - \
                        resolution * status.degrees.get(clu, 0.) * degc_totw
                 if incr > best_increase:
                     best_increase = incr
                     best_clu = clu
+            #insert node to the neighbor cluster
             __insert(node, best_clu,
                      neigh_clusters.get(best_clu, 0.), status)
             if best_clu != clu_node:
                 modified = True
         new_mod = __modularity(status, resolution)
-        if new_mod - cur_mod < _MIN:
+        if new_mod - cur_mod < _MIN: #which means current modularity is the optimal, so break
             break
 
 
