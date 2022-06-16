@@ -2,11 +2,11 @@
 
 
 class Status(object):
-    node_to_cluster = {}
-    total_weight = 0
-    internals = {}
-    degrees = {}
-    gdegrees = {}
+    node_to_cluster = {} #the cluster that each node belongs to
+    total_weight = 0 #total weight of the graph
+    internals = {} #the total intra-cluster weight/degree of each cluster
+    degrees = {} #the total degree of each cluster
+    gdegrees = {} #the degree of each node
 
     def __init__(self):
         self.node_to_cluster = dict([])
@@ -64,10 +64,5 @@ class Status(object):
                         error = "Bad graph type ({})".format(type(graph))
                         raise ValueError(error)
                     if part[neighbor] == com:
-                        if neighbor == node:
-                            # inc += float(edge_weight)
-                            # Modified:
-                            inc += float(edge_weight) / 2.
-                        else:
-                            inc += float(edge_weight) / 2.
+                        inc += float(edge_weight)
                 self.internals[com] = self.internals.get(com, 0) + inc
