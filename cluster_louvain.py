@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import array
+from msilib.schema import Error
 
 import numbers
 import warnings
@@ -10,12 +11,12 @@ import numpy as np
 
 from cluster_status import Status
 
-__author__ = """Thomas Aynaud (thomas.aynaud@lip6.fr)"""
+__author__ = """Thomas Aynaud (src), customized by Miryam Huang"""
 #    Copyright (C) 2009 by
 #    Thomas Aynaud <thomas.aynaud@lip6.fr>
 #    All rights reserved.
 #    BSD license.
-#    some problems were fixed by Miryam Huang
+#    some functions are added by Miryam Huang
 
 '''
 you can set MAX_PASS on your own, 
@@ -92,7 +93,9 @@ def best_leveled_cluster(graph,
                    weight='weight',
                    resolution=1.,
                    randomize=None,
-                   random_s=None):
+                   random_s=None,
+                   mode=0,
+                   is_confident=None):
     
     """Compute the leveled cluster of the graph nodes which maximises the modularity by the Louvain heuristices
     
@@ -121,7 +124,9 @@ def best_leveled_cluster(graph,
                                 weight,
                                 resolution,
                                 randomize,
-                                random_s)
+                                random_s,
+                                mode,
+                                is_confident)
     return leveled_cluster(dendo, len(dendo) - 1)
 
 
@@ -130,7 +135,9 @@ def generate_dendrogram(graph,
                         weight='weight',
                         resolution=1.,
                         randomize=None,
-                        random_s=None):
+                        random_s=None,
+                        mode=0,
+                        is_confident=None):
 
     #Find clusters in the graph and return the associated dendrogram
 
@@ -163,8 +170,9 @@ def generate_dendrogram(graph,
     status = Status() #the graph structure is maitained in status
     status.initialization(current_graph, weight, l_cluster_init)
     status_list = list() #handle the level_cluster, the whole list is the dendrogram i.e. clustering history
-    #do one_level louvain
-    __one_level(current_graph, status, weight, resolution, random_s)
+    #do customized one_level louvain
+    __customized_one_level(current_graph, status, weight, resolution, random_s, mode,
+                   is_confident)
     #compute modularity and set as new_modularity, it will be compared later on
     new_modularity = __modularity(status, resolution)
     #l_cluster is the clustering result: which node belongs to which cluster
@@ -273,6 +281,67 @@ def load_binary(data):
     return graph
 
 
+def __customized_one_level(graph, status, weight_key, resolution, random_s, mode,
+                   is_confident):
+    #compute custimized one level of clusters
+    if mode > 3:
+        raise Error("no such mode: %d" % mode)
+    modified = True
+    nb_pass_done = 0
+    cur_mod = __modularity(status, resolution) #compute modularity
+    new_mod = cur_mod #set modularity
+
+    while modified and nb_pass_done != MAX_PASS:
+        cur_mod = new_mod
+        modified = False
+        nb_pass_done += 1
+
+        for node in __randomize(graph.nodes(), random_s): #randomly pick a node and start from the node
+            clu_node = status.node_to_cluster[node] #the cluster that the node belongs to
+            #mode 2 CS as initial cluster and remaining nodes do nothing.
+            if mode == 2 and is_confident[clu_node] == True:
+                continue
+            #mode 3 CS as initial cluster and do Louvain, remaining nodes do nothing but add to the CS who did Louvain
+            if mode == 3 and is_confident[clu_node] == False:
+                continue
+            degc_totw = status.gdegrees.get(node, 0.) / (status.total_weight * 2.) #the degree of each node/2m
+            neigh_clusters = __neighborcluster(node, graph, status, weight_key) #neighbor cluster
+            #remove_cost: wikipedia modularity difference (remove node from its mother cluster)
+            remove_cost = - neigh_clusters.get(clu_node,0) + \
+                resolution * (status.degrees.get(clu_node, 0.) - status.gdegrees.get(node, 0.)) * degc_totw
+            #remove the node
+            __remove(node, clu_node,
+                     neigh_clusters.get(clu_node, 0.), status)
+            best_clu = clu_node
+            best_increase = 0
+            for clu, dnc in __randomize(neigh_clusters.items(), random_s): #neighbor cluster of current node
+                #mode 1: only process CS<->CS, remainging_node<->remaining_node
+                if mode == 1 and is_confident[clu_node] != is_confident[clu]:
+                    continue
+                #mode 2: only process if the neighbor cluster is a confident set
+                if mode == 2 and is_confident[clu] == False:
+                    continue
+                #mode 3: only process if the neighbor cluster is a confident set
+                if mode == 3 and is_confident[clu] == False:
+                    continue
+                #incr: wikipedia modularity difference (add node to its neighbor cluster)
+                incr = remove_cost + dnc - \
+                       resolution * status.degrees.get(clu, 0.) * degc_totw
+                if incr > best_increase:
+                    best_increase = incr
+                    best_clu = clu
+            #insert node to the neighbor cluster
+            __insert(node, best_clu,
+                     neigh_clusters.get(best_clu, 0.), status)
+            if best_clu != clu_node:
+                modified = True
+        new_mod = __modularity(status, resolution)
+        if new_mod - cur_mod < _MIN: #which means current modularity is the optimal, so break
+            break
+        if mode == 3:
+            __customized_one_level(2, is_confident, graph, status, weight_key, resolution, random_s)
+
+#normal_one_level
 def __one_level(graph, status, weight_key, resolution, random_s):
     #compute one level of clusters
 
