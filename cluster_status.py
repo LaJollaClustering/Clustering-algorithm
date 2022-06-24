@@ -64,5 +64,8 @@ class Status(object):
                         error = "Bad graph type ({})".format(type(graph))
                         raise ValueError(error)
                     if part[neighbor] == com:
-                        inc += float(edge_weight)
+                        if neighbor == node:
+                            inc += float(edge_weight)
+                        else:
+                            inc += float(edge_weight) / 2.
                 self.internals[com] = self.internals.get(com, 0) + inc

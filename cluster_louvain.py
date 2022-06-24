@@ -75,13 +75,14 @@ def modularity(l_cluster, graph, weight='weight'):
         for v, datas in graph[u].items(): #v: neighbor node of u
             edge_weight = datas.get(weight, 1)
             if l_cluster[v] == cluster: #same cluster: add in-degree
-                # \Sum A_{u,v} where node {u,v} in the same cluster
-                # self-loop only add once and normal edges add twice
-                inc[cluster] = inc.get(cluster, 0.) + float(edge_weight)
+                if v == u:
+                    inc[cluster] = inc.get(cluster, 0.) + float(edge_weight)
+                else:
+                    inc[cluster] = inc.get(cluster, 0.) + float(edge_weight) / 2.
     #computer modularity
     res = 0.
     for cluster in set(l_cluster.values()):
-        res += (inc.get(cluster, 0.) / (2. * edges)) - \
+        res += (inc.get(cluster, 0.) / edges) - \
                (deg.get(cluster, 0.) / (2. * edges)) ** 2
     return res
 
@@ -331,7 +332,7 @@ def __remove(node, com, weight, status):
     status.degrees[com] = (status.degrees.get(com, 0.)
                            - status.gdegrees.get(node, 0.))
     status.internals[com] = float(status.internals.get(com, 0.) -
-                                  2. * weight - status.loops.get(node, 0.)) # weight*2 since node->cluster, cluster->node
+                                  weight - status.loops.get(node, 0.))
     status.node_to_cluster[node] = -1
 
 
@@ -341,7 +342,7 @@ def __insert(node, clu, weight, status):
     status.degrees[clu] = (status.degrees.get(clu, 0.) +
                            status.gdegrees.get(node, 0.))
     status.internals[clu] = float(status.internals.get(clu, 0.) +
-                                  2. * weight + status.loops.get(node, 0.)) # weight*2 since node->cluster, cluster->node
+                                  weight + status.loops.get(node, 0.))
 
 
 def __modularity(status, resolution):
@@ -354,7 +355,7 @@ def __modularity(status, resolution):
         in_degree = status.internals.get(cluster, 0.)
         degree = status.degrees.get(cluster, 0.)
         if edges > 0:
-            result += in_degree * resolution / (2. * edges) -  ((degree / (2. * edges)) ** 2)
+            result += in_degree * resolution / edges -  ((degree / (2. * edges)) ** 2)
     return result
 
 
