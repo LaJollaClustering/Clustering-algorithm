@@ -1,7 +1,6 @@
 from __future__ import print_function
 
 import array
-from msilib.schema import Error
 
 import numbers
 import warnings
@@ -285,7 +284,7 @@ def __customized_one_level(graph, status, weight_key, resolution, random_s, mode
                    is_confident):
     #compute custimized one level of clusters
     if mode > 3:
-        raise Error("no such mode: %d" % mode)
+        raise ValueError("no such mode: %d" % mode)
     modified = True
     nb_pass_done = 0
     cur_mod = __modularity(status, resolution) #compute modularity
@@ -339,7 +338,7 @@ def __customized_one_level(graph, status, weight_key, resolution, random_s, mode
         if new_mod - cur_mod < _MIN: #which means current modularity is the optimal, so break
             break
         if mode == 3:
-            __customized_one_level(2, is_confident, graph, status, weight_key, resolution, random_s)
+            __customized_one_level(graph, status, weight_key, resolution, random_s, 2, is_confident)
 
 #normal_one_level
 def __one_level(graph, status, weight_key, resolution, random_s):
